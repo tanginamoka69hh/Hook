@@ -4,7 +4,6 @@ project(networkhook)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Prebuilt libraries will be in libs/arm64-v8a/
 set(LIB_DIR ${CMAKE_SOURCE_DIR}/libs/${ANDROID_ABI})
 set(INC_DIR ${CMAKE_SOURCE_DIR}/include)
 
