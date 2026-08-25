@@ -1,0 +1,7 @@
+build/
+libs/
+*.so
+*.a
+*.o
+*.zip
+.DS_Store
