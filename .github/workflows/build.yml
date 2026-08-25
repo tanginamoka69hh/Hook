@@ -16,9 +16,6 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install OpenSSL
-        run: sudo apt-get update && sudo apt-get install -y openssl
-
       - name: Encrypt endpoint
         run: |
           chmod +x scripts/encrypt.py
@@ -30,17 +27,41 @@ jobs:
           unzip -q android-ndk-r25c-linux.zip
           echo "ANDROID_NDK=$PWD/android-ndk-r25c" >> $GITHUB_ENV
 
-      - name: Download libcurl (Android arm64)
+      - name: Build OpenSSL for Android (arm64-v8a)
         run: |
-          mkdir -p libs/arm64-v8a include
-          cd libs/arm64-v8a
-          wget -q https://github.com/vvb2060/curl-android/releases/download/v1.0.0/libcurl-arm64.a
+          git clone --depth 1 -b openssl-3.4.1 https://github.com/openssl/openssl.git /tmp/openssl
+          cd /tmp/openssl
+          export PATH=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+          export CC=clang
+          export CXX=clang++
+          ./Configure android-arm64 -D__ANDROID_API__=21 no-shared --prefix=$PWD/install
+          make -j$(nproc)
+          make install_sw
+          mkdir -p $GITHUB_WORKSPACE/libs/arm64-v8a
+          cp install/lib/libcrypto.a $GITHUB_WORKSPACE/libs/arm64-v8a/
+          cp install/lib/libssl.a $GITHUB_WORKSPACE/libs/arm64-v8a/
+          mkdir -p $GITHUB_WORKSPACE/include
+          cp -r install/include/* $GITHUB_WORKSPACE/include/
 
-      - name: Download OpenSSL (Android arm64)
+      - name: Build libcurl for Android (arm64-v8a)
         run: |
-          cd libs/arm64-v8a
-          wget -q https://github.com/kibitzerCZ/Prebuilt-OpenSSL-for-Android/releases/download/v1.0.0/libssl-arm64.a
-          wget -q https://github.com/kibitzerCZ/Prebuilt-OpenSSL-for-Android/releases/download/v1.0.0/libcrypto-arm64.a
+          git clone --depth 1 -b curl-8_12_1 https://github.com/curl/curl.git /tmp/curl
+          cd /tmp/curl
+          export PATH=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+          export CC=clang
+          export CXX=clang++
+          export CFLAGS="-I$GITHUB_WORKSPACE/include"
+          export LDFLAGS="-L$GITHUB_WORKSPACE/libs/arm64-v8a"
+          export PKG_CONFIG_PATH="$GITHUB_WORKSPACE/libs/arm64-v8a/pkgconfig"
+          autoreconf -fi
+          ./configure --host=aarch64-linux-android --with-ssl=$GITHUB_WORKSPACE \
+                      --disable-shared --enable-static --disable-ldap \
+                      --disable-ldaps --disable-rtsp --disable-dict --disable-telnet \
+                      --disable-tftp --disable-pop3 --disable-imap --disable-smtp \
+                      --disable-gopher --disable-ftp --disable-file \
+                      --without-libidn2 --without-brotli --without-zstd
+          make -j$(nproc)
+          cp lib/.libs/libcurl.a $GITHUB_WORKSPACE/libs/arm64-v8a/
 
       - name: Build .so
         run: |
