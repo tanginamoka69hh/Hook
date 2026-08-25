@@ -4,26 +4,21 @@ project(networkhook)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Dependencies: lahat ng ito ay bubuuin sa workflow
+# Prebuilt libraries will be in libs/arm64-v8a/
 set(LIB_DIR ${CMAKE_SOURCE_DIR}/libs/${ANDROID_ABI})
-set(INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
+set(INC_DIR ${CMAKE_SOURCE_DIR}/include)
 
 add_library(networkhook SHARED native_hook.cpp)
 
-target_include_directories(networkhook PRIVATE
-    ${INCLUDE_DIR}
-    ${INCLUDE_DIR}/nghttp2
-    ${INCLUDE_DIR}/brotli
-)
+target_include_directories(networkhook PRIVATE ${INC_DIR})
 
 target_link_libraries(networkhook
+    ${LIB_DIR}/libdobby.a
     ${LIB_DIR}/libcurl.a
     ${LIB_DIR}/libssl.a
     ${LIB_DIR}/libcrypto.a
     ${LIB_DIR}/libnghttp2.a
-    ${LIB_DIR}/libbrotlidec.a
-    ${LIB_DIR}/libbrotlienc.a
-    ${LIB_DIR}/libbrotlicommon.a
+    ${LIB_DIR}/libbrotli.a
     ${LIB_DIR}/libz.a
     log
     dl
