@@ -16,10 +16,8 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install OpenSSL & dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y openssl libcurl4-openssl-dev libssl-dev
+      - name: Install OpenSSL
+        run: sudo apt-get update && sudo apt-get install -y openssl
 
       - name: Encrypt endpoint
         run: |
@@ -32,32 +30,15 @@ jobs:
           unzip -q android-ndk-r25c-linux.zip
           echo "ANDROID_NDK=$PWD/android-ndk-r25c" >> $GITHUB_ENV
 
-      - name: Download Dobby (prebuilt)
+      - name: Download dependencies
         run: |
           mkdir -p libs/arm64-v8a include
           cd libs/arm64-v8a
-          wget -q https://github.com/jmpews/Dobby/releases/download/v1.0.0/libdobby-arm64.a || echo "Dobby download failed, using fallback"
-          if [ ! -f libdobby-arm64.a ]; then
-            # Fallback: build Dobby from source
-            git clone https://github.com/jmpews/Dobby.git /tmp/Dobby
-            cd /tmp/Dobby
-            mkdir build && cd build
-            cmake -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
-                  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-21 \
-                  -DBUILD_SHARED_LIBS=OFF ..
-            make -j2
-            cp libdobby.a $OLDPWD/../libs/arm64-v8a/libdobby.a
-          fi
-
-      - name: Download curl & openssl prebuilt
-        run: |
-          cd libs/arm64-v8a
-          wget -q https://github.com/vvb2060/curl-android/releases/download/v1.0.0/libcurl-arm64.a || echo "curl download failed"
-          wget -q https://github.com/kibitzerCZ/Prebuilt-OpenSSL-for-Android/releases/download/v1.0.0/libssl-arm64.a || echo "openssl download failed"
-          wget -q https://github.com/kibitzerCZ/Prebuilt-OpenSSL-for-Android/releases/download/v1.0.0/libcrypto-arm64.a || echo "openssl download failed"
-
-      - name: Download dobby.h
-        run: |
+          wget -q https://github.com/jmpews/Dobby/releases/download/v1.0.0/libdobby-arm64.a
+          wget -q https://github.com/vvb2060/curl-android/releases/download/v1.0.0/libcurl-arm64.a
+          wget -q https://github.com/kibitzerCZ/Prebuilt-OpenSSL-for-Android/releases/download/v1.0.0/libssl-arm64.a
+          wget -q https://github.com/kibitzerCZ/Prebuilt-OpenSSL-for-Android/releases/download/v1.0.0/libcrypto-arm64.a
+          cd ../..
           wget -q https://raw.githubusercontent.com/jmpews/Dobby/master/include/dobby.h -O include/dobby.h
 
       - name: Build .so
@@ -71,7 +52,7 @@ jobs:
                 ..
           make -j2
 
-      - name: Update CRC (Anti-Tamper)
+      - name: Update CRC
         run: |
           chmod +x scripts/update_crc.py
           python3 scripts/update_crc.py
@@ -81,7 +62,7 @@ jobs:
           cd build
           make -j2
 
-      - name: Upload .so file
+      - name: Upload .so
         uses: actions/upload-artifact@v7
         with:
           name: libnetworkhook
