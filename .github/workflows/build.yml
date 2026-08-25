@@ -28,7 +28,7 @@ jobs:
           echo "ANDROID_NDK=$PWD/android-ndk-r25c" >> $GITHUB_ENV
           echo "PATH=$PWD/android-ndk-r25c/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH" >> $GITHUB_ENV
 
-      - name: Build all dependencies
+      - name: Build all dependencies (FIXED)
         run: |
           export ANDROID_NDK=$GITHUB_WORKSPACE/android-ndk-r25c
           export PATH=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
@@ -41,7 +41,7 @@ jobs:
           
           mkdir -p libs/arm64-v8a include
           cd $GITHUB_WORKSPACE
-          
+
           # -------------------- zlib --------------------
           git clone --depth 1 https://github.com/madler/zlib.git /tmp/zlib
           cd /tmp/zlib
@@ -50,17 +50,18 @@ jobs:
           make install
           cp install/lib/libz.a $GITHUB_WORKSPACE/libs/arm64-v8a/
           cp -r install/include/* $GITHUB_WORKSPACE/include/
-          
-          # -------------------- OpenSSL --------------------
+
+          # -------------------- OpenSSL (CORRECT TARGET) --------------------
           git clone --depth 1 -b openssl-3.4.1 https://github.com/openssl/openssl.git /tmp/openssl
           cd /tmp/openssl
-          ./Configure android-arm64 -D__ANDROID_API__=21 no-shared --prefix=$PWD/install
+          # Use android-arm64-clang target (for clang)
+          ./Configure android-arm64-clang -D__ANDROID_API__=21 no-shared --prefix=$PWD/install
           make -j$(nproc)
           make install_sw
           cp install/lib/libcrypto.a $GITHUB_WORKSPACE/libs/arm64-v8a/
           cp install/lib/libssl.a $GITHUB_WORKSPACE/libs/arm64-v8a/
           cp -r install/include/* $GITHUB_WORKSPACE/include/
-          
+
           # -------------------- nghttp2 --------------------
           git clone --depth 1 -b v1.64.0 https://github.com/nghttp2/nghttp2.git /tmp/nghttp2
           cd /tmp/nghttp2
@@ -74,7 +75,7 @@ jobs:
           make -j$(nproc)
           cp lib/.libs/libnghttp2.a $GITHUB_WORKSPACE/libs/arm64-v8a/
           cp -r lib/includes/* $GITHUB_WORKSPACE/include/
-          
+
           # -------------------- Brotli --------------------
           git clone --depth 1 -b v1.1.0 https://github.com/google/brotli.git /tmp/brotli
           cd /tmp/brotli
@@ -90,7 +91,7 @@ jobs:
           cp install/lib/libbrotlidec.a $GITHUB_WORKSPACE/libs/arm64-v8a/
           cp install/lib/libbrotlienc.a $GITHUB_WORKSPACE/libs/arm64-v8a/
           cp -r install/include/* $GITHUB_WORKSPACE/include/
-          
+
           # -------------------- libcurl --------------------
           git clone --depth 1 -b curl-8_12_1 https://github.com/curl/curl.git /tmp/curl
           cd /tmp/curl
@@ -105,12 +106,13 @@ jobs:
                       --disable-dict --disable-telnet --disable-tftp \
                       --disable-pop3 --disable-imap --disable-smtp \
                       --disable-gopher --disable-ftp --disable-file \
+                      --without-libidn2 \
                       CFLAGS="-I$GITHUB_WORKSPACE/include -fPIC" \
                       LDFLAGS="-L$GITHUB_WORKSPACE/libs/arm64-v8a"
           make -j$(nproc)
           cp lib/.libs/libcurl.a $GITHUB_WORKSPACE/libs/arm64-v8a/
-          
-          # -------------------- Dobby (built from source) --------------------
+
+          # -------------------- Dobby --------------------
           git clone https://github.com/jmpews/Dobby.git /tmp/Dobby
           cd /tmp/Dobby
           mkdir build && cd build
