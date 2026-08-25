@@ -16,11 +16,6 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y openssl libssl-dev libcurl4-openssl-dev
-
       - name: Encrypt endpoint
         run: |
           chmod +x scripts/encrypt.py
@@ -32,7 +27,29 @@ jobs:
           unzip -q android-ndk-r25c-linux.zip
           echo "ANDROID_NDK=$PWD/android-ndk-r25c" >> $GITHUB_ENV
 
-      - name: Build .so (using system libraries)
+      - name: Download prebuilt libraries (OpenSSL + libcurl)
+        run: |
+          mkdir -p libs/arm64-v8a include
+          cd libs/arm64-v8a
+          
+          # Download OpenSSL 3.4.1 for arm64-v8a (prebuilt)
+          curl -L https://github.com/openssl/openssl/releases/download/openssl-3.4.1/openssl-android-arm64.tar.gz -o openssl.tar.gz
+          tar -xzf openssl.tar.gz
+          cp openssl-android-arm64/lib/libssl.a .
+          cp openssl-android-arm64/lib/libcrypto.a .
+          cp -r openssl-android-arm64/include/* ../../
+          rm -rf openssl.tar.gz openssl-android-arm64
+          
+          # Download libcurl 8.12.1 for arm64-v8a (prebuilt)
+          curl -L https://github.com/curl/curl/releases/download/curl-8_12_1/curl-android-arm64.a -o libcurl.a
+          
+          cd ../..
+          
+          # Verify files exist
+          ls -la libs/arm64-v8a/
+          ls -la include/
+
+      - name: Build .so
         run: |
           mkdir build && cd build
           cmake -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
@@ -40,8 +57,6 @@ jobs:
                 -DANDROID_PLATFORM=android-21 \
                 -DCMAKE_FIND_ROOT_PATH=$PWD/.. \
                 -DCMAKE_VERBOSE_MAKEFILE=ON \
-                -DCMAKE_CXX_FLAGS="-I/usr/include -I/usr/include/aarch64-linux-gnu" \
-                -DCMAKE_EXE_LINKER_FLAGS="-L/usr/lib/aarch64-linux-gnu" \
                 ..
           make -j2
 
