@@ -28,7 +28,7 @@ jobs:
           echo "ANDROID_NDK=$PWD/android-ndk-r25c" >> $GITHUB_ENV
           echo "PATH=$PWD/android-ndk-r25c/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH" >> $GITHUB_ENV
 
-      - name: Build OpenSSL for Android (arm64-v8a) - FIXED
+      - name: Build OpenSSL for Android (arm64-v8a)
         run: |
           export ANDROID_NDK=$GITHUB_WORKSPACE/android-ndk-r25c
           export PATH=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
@@ -36,14 +36,11 @@ jobs:
           export CXX=aarch64-linux-android21-clang++
           export AR=llvm-ar
           export RANLIB=llvm-ranlib
-          # Clear any conflicting CROSS_COMPILE
-          unset CROSS_COMPILE
 
           mkdir -p libs/arm64-v8a include
           git clone --depth 1 -b openssl-3.4.1 https://github.com/openssl/openssl.git /tmp/openssl
           cd /tmp/openssl
-          # Use android-arm64-clang target (explicitly for clang)
-          ./Configure android-arm64-clang -D__ANDROID_API__=21 no-shared --prefix=$PWD/install
+          ./Configure android-arm64 -D__ANDROID_API__=21 no-shared --prefix=$PWD/install
           make -j$(nproc)
           make install_sw
           cp install/lib/libcrypto.a $GITHUB_WORKSPACE/libs/arm64-v8a/
