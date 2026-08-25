@@ -16,10 +16,8 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install OpenSSL & libcurl & dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y openssl libssl-dev libcurl4-openssl-dev
+      - name: Install OpenSSL
+        run: sudo apt-get update && sudo apt-get install -y openssl
 
       - name: Encrypt endpoint
         run: |
@@ -31,6 +29,18 @@ jobs:
           wget -q https://dl.google.com/android/repository/android-ndk-r25c-linux.zip
           unzip -q android-ndk-r25c-linux.zip
           echo "ANDROID_NDK=$PWD/android-ndk-r25c" >> $GITHUB_ENV
+
+      - name: Download libcurl (Android arm64)
+        run: |
+          mkdir -p libs/arm64-v8a include
+          cd libs/arm64-v8a
+          wget -q https://github.com/vvb2060/curl-android/releases/download/v1.0.0/libcurl-arm64.a
+
+      - name: Download OpenSSL (Android arm64)
+        run: |
+          cd libs/arm64-v8a
+          wget -q https://github.com/kibitzerCZ/Prebuilt-OpenSSL-for-Android/releases/download/v1.0.0/libssl-arm64.a
+          wget -q https://github.com/kibitzerCZ/Prebuilt-OpenSSL-for-Android/releases/download/v1.0.0/libcrypto-arm64.a
 
       - name: Build .so
         run: |
