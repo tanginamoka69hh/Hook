@@ -1,61 +1,279 @@
-name: Build Obfuscated .so
+name: Build Android .so
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v6
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
 
       - name: Setup Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
-      - name: Install dependencies
+
+      - name: Install host dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y openssl libssl-dev libcurl4-openssl-dev
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config
 
-      - name: Encrypt endpoint
-        run: |
-          chmod +x scripts/encrypt.py
-          python3 scripts/encrypt.py
 
       - name: Setup Android NDK
+        shell: bash
         run: |
-          wget -q https://dl.google.com/android/repository/android-ndk-r25c-linux.zip
+          set -e
+
+          wget -q \
+            https://dl.google.com/android/repository/android-ndk-r25c-linux.zip
+
           unzip -q android-ndk-r25c-linux.zip
-          echo "ANDROID_NDK=$PWD/android-ndk-r25c" >> $GITHUB_ENV
+
+          echo "ANDROID_NDK=$GITHUB_WORKSPACE/android-ndk-r25c" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$GITHUB_WORKSPACE/android-ndk-r25c" >> "$GITHUB_ENV"
+
+          echo "$GITHUB_WORKSPACE/android-ndk-r25c/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+
+
+      - name: Prepare directories
+        run: |
+          mkdir -p libs/arm64-v8a
+          mkdir -p include
+
+
+      - name: Encrypt endpoint
+        shell: bash
+        run: |
+          set -e
+
+          test -f endpoint.txt
+          test -f scripts/encrypt.py
+
+          python3 scripts/encrypt.py
+
+
+      - name: Build Dobby
+        shell: bash
+        run: |
+          set -e
+
+          export ANDROID_NDK="$GITHUB_WORKSPACE/android-ndk-r25c"
+
+          git clone --depth 1 \
+            https://github.com/jmpews/Dobby.git \
+            /tmp/Dobby
+
+          cmake -S /tmp/Dobby -B /tmp/Dobby/build \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-21 \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+
+          cmake --build /tmp/Dobby/build \
+            --parallel "$(nproc)"
+
+          DOBBY_LIB=$(find /tmp/Dobby/build \
+            -type f \
+            -name "libdobby.a" \
+            | head -n 1)
+
+          test -n "$DOBBY_LIB"
+
+          cp "$DOBBY_LIB" \
+            libs/arm64-v8a/libdobby.a
+
+          cp /tmp/Dobby/include/dobby.h \
+            include/dobby.h
+
+
+      - name: Build OpenSSL
+        shell: bash
+        run: |
+          set -e
+
+          export ANDROID_NDK="$GITHUB_WORKSPACE/android-ndk-r25c"
+          export PATH="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+
+          git clone --depth 1 \
+            -b openssl-3.4.1 \
+            https://github.com/openssl/openssl.git \
+            /tmp/openssl
+
+          cd /tmp/openssl
+
+          ./Configure \
+            android-arm64 \
+            -D__ANDROID_API__=21 \
+            no-shared \
+            no-tests \
+            --prefix="$GITHUB_WORKSPACE/openssl-install"
+
+          make -j"$(nproc)"
+          make install_sw
+
+          SSL_LIB=$(find "$GITHUB_WORKSPACE/openssl-install" \
+            -type f \
+            -name "libssl.a" \
+            | head -n 1)
+
+          CRYPTO_LIB=$(find "$GITHUB_WORKSPACE/openssl-install" \
+            -type f \
+            -name "libcrypto.a" \
+            | head -n 1)
+
+          test -f "$SSL_LIB"
+          test -f "$CRYPTO_LIB"
+
+          cp "$SSL_LIB" \
+            "$GITHUB_WORKSPACE/libs/arm64-v8a/libssl.a"
+
+          cp "$CRYPTO_LIB" \
+            "$GITHUB_WORKSPACE/libs/arm64-v8a/libcrypto.a"
+
+          cp -r \
+            "$GITHUB_WORKSPACE/openssl-install/include/openssl" \
+            "$GITHUB_WORKSPACE/include/"
+
+
+      - name: Build libcurl
+        shell: bash
+        run: |
+          set -e
+
+          export ANDROID_NDK="$GITHUB_WORKSPACE/android-ndk-r25c"
+          export PATH="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+
+          export CC=aarch64-linux-android21-clang
+          export CXX=aarch64-linux-android21-clang++
+
+          git clone --depth 1 \
+            -b curl-8_12_1 \
+            https://github.com/curl/curl.git \
+            /tmp/curl
+
+          cd /tmp/curl
+
+          autoreconf -fi
+
+          OPENSSL_PREFIX="$GITHUB_WORKSPACE/openssl-install"
+
+          ./configure \
+            --host=aarch64-linux-android \
+            --with-openssl="$OPENSSL_PREFIX" \
+            --disable-shared \
+            --enable-static \
+            --without-zlib \
+            --without-brotli \
+            --without-nghttp2 \
+            --without-libpsl \
+            --without-libidn2 \
+            --disable-ldap \
+            --disable-ldaps \
+            --disable-rtsp \
+            --disable-dict \
+            --disable-telnet \
+            --disable-tftp \
+            --disable-pop3 \
+            --disable-imap \
+            --disable-smtp \
+            --disable-gopher \
+            --disable-ftp \
+            --disable-file \
+            CFLAGS="-fPIC -I$OPENSSL_PREFIX/include" \
+            LDFLAGS="-L$OPENSSL_PREFIX/lib64 -L$OPENSSL_PREFIX/lib"
+
+          make -j"$(nproc)"
+
+          cp lib/.libs/libcurl.a \
+            "$GITHUB_WORKSPACE/libs/arm64-v8a/libcurl.a"
+
+          cp -r include/curl \
+            "$GITHUB_WORKSPACE/include/"
+
+
+      - name: Verify dependencies
+        shell: bash
+        run: |
+          set -e
+
+          echo "=== Static libraries ==="
+          ls -lh libs/arm64-v8a/
+
+          test -f libs/arm64-v8a/libdobby.a
+          test -f libs/arm64-v8a/libcurl.a
+          test -f libs/arm64-v8a/libssl.a
+          test -f libs/arm64-v8a/libcrypto.a
+
+          echo "All dependencies found."
+
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          set -e
+
+          rm -rf build
+
+          cmake \
+            -S . \
+            -B build \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-21 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_VERBOSE_MAKEFILE=ON
+
 
       - name: Build .so
+        shell: bash
         run: |
-          mkdir build && cd build
-          cmake -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
-                -DANDROID_ABI=arm64-v8a \
-                -DANDROID_PLATFORM=android-21 \
-                -DCMAKE_FIND_ROOT_PATH=$PWD/.. \
-                -DCMAKE_VERBOSE_MAKEFILE=ON \
-                -DCMAKE_CXX_FLAGS="-isystem /usr/include -isystem /usr/include/x86_64-linux-gnu" \
-                ..
-          make -j2
+          set -e
 
-      - name: Update CRC
-        run: |
-          chmod +x scripts/update_crc.py
-          python3 scripts/update_crc.py
+          cmake --build build \
+            --parallel "$(nproc)" \
+            --verbose
 
-      - name: Rebuild with correct CRC
+
+      - name: Verify output
+        shell: bash
         run: |
-          cd build
-          make -j2
+          set -e
+
+          test -f build/libnetworkhook.so
+
+          echo "=== Output ==="
+          ls -lh build/libnetworkhook.so
+
+          echo "=== File ==="
+          file build/libnetworkhook.so
+
+          echo "=== ELF ==="
+
+          "$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" \
+            -h build/libnetworkhook.so
+
 
       - name: Upload .so
         uses: actions/upload-artifact@v7
         with:
-          name: libnetworkhook
+          name: libnetworkhook-arm64-v8a
           path: build/libnetworkhook.so
+          if-no-files-found: error
